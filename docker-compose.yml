@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gerador_relatorios_hotelaria
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Monta o código e permite que os relatórios gerados fiquem salvos no host
+      - .:/app
+      # Permite o compartilhamento de telas X11 no Linux/Unix (para exibir a interface gráfica)
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    ipc: host
+    network_mode: host
+    restart: unless-stopped

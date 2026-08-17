@@ -1,0 +1,185 @@
+# Revinn Estratégias - Gerador de Relatórios e Auditoria Hoteleira BI
+
+![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![Framework](https://img.shields.io/badge/UI-CustomTkinter-159F92.svg)
+![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)
+
+Aplicação desktop profissional de **Business Intelligence e Auditoria Hoteleira** desenvolvida para a **Revinn Estratégias**. O sistema automatiza a ingestão, limpeza, processamento e visualização de dados operacionais (check-outs, reservas emitidas e dados de pickup/evolução YoY), consolidando relatórios gerenciais em múltiplos formatos (**Excel**, **Word** e **PDF Lâmina de Performance**).
+
+---
+
+## 📌 Funcionalidades Principais
+
+- **Limpeza e Normalização de Dados de Auditoria (CSV):**
+  - Leitura inteligente com tolerância a múltiplos encodigs (`utf-8`, `latin1`).
+  - Tratamento de delimitadores residuais e remoção automatizada de linhas totais/inválidas.
+  - Formatação monetária (BRL), cálculo de *Length of Stay* (LOS) e *Lead Time*.
+
+- **Análise de Pickup e Evolução YoY (Excel):**
+  - Leitura dinâmica de planilhas de evolução (`evolution_table`) e fechamento (`pickup_table`).
+  - Cálculo de métricas-chave: Taxa de Ocupação, Diária Média (ADR) e RevPAR (Comparativo Ano Atual vs. Ano Anterior).
+
+- **Geração de Gráficos e Visualizações:**
+  - Gráfico de linha interativo de tendência diária YoY.
+  - Gráficos de barras comparativos para fechamento de Ocupação e ADR.
+
+- **Exportação Multiformato:**
+  - **Excel (`.xlsx`):** Tabelas estruturadas de check-outs por categoria, por canal e reservas emitidas.
+  - **Word (`.docx`):** Documento formatado no padrão corporativo da empresa (capa personalizada, tipografia Inter/Poppins, tabelas estilizadas, rodapés com numeração dinâmica).
+  - **PDF (`.pdf`):** Lâmina de Performance executiva estilizada via HTML/CSS (WeasyPrint), contendo cartões de KPIs e seções adicionais de canais (Booking.com, Expedia, etc.).
+
+- **Interface Gráfica (GUI) Moderna:**
+  - Interface desenvolvida com **CustomTkinter**.
+  - Suporte a alternância entre **Modo Escuro (Dark Mode)** e **Modo Claro (Light Mode)**.
+  - Seções expansíveis para inclusão de notas e capturas de tela dos canais.
+  - Feedback em tempo real com barra de progresso e console de log detalhado.
+
+---
+
+## 🏗️ Arquitetura do Projeto
+
+O projeto segue princípios de **Clean Architecture**, dividindo a aplicação em módulos bem definidos e desacoplados:
+
+```text
+report_generator/
+├── main.py                     # Ponto de entrada da aplicação
+├── requirements.txt            # Dependências Python
+├── Dockerfile                  # Imagem Docker com dependências de sistema (GTK3, Tkinter)
+├── docker-compose.yml          # Orquestração do container Docker
+├── .dockerignore               # Arquivos ignorados no build do Docker
+├── README.md                   # Documentação do projeto
+└── src/
+    ├── core/
+    │   └── processors.py       # Lógica de processamento de dados (DataProcessor, PickupProcessor)
+    ├── infrastructure/
+    │   └── exporters.py        # Exportadores de arquivos (Excel, Word docx, WeasyPrint PDF)
+    ├── visualization/
+    │   └── visualizers.py      # Geradores de gráficos (Matplotlib) e relatórios tabulares
+    └── ui/
+        └── gui.py              # Interface gráfica interativa (CustomTkinter)
+```
+
+---
+
+## 🛠️ Requisitos do Sistema
+
+### Módulos Python Necessários
+- `pandas` (>= 2.0.0)
+- `openpyxl` (>= 3.1.0)
+- `python-docx` (>= 1.1.0)
+- `matplotlib` (>= 3.7.0)
+- `customtkinter` (>= 5.2.0)
+- `weasyprint` (>= 60.0)
+- `Pillow` (>= 10.0.0)
+
+### Requisito para Windows (Exportação de PDF)
+A geração de PDFs utiliza o **WeasyPrint**, que depende das bibliotecas C **GTK+3**.
+- Se for executar diretamente no Windows (sem Docker), é necessário instalar o **GTK3 Runtime**:
+  - Baixe e instale o [GTK3-Runtime Win64](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases).
+
+---
+
+## 🚀 Como Executar o Projeto
+
+### Opção 1: Execução Local (Python Native)
+
+1. **Clone o repositório ou navegue até a pasta do projeto:**
+   ```bash
+   cd report_generator
+   ```
+
+2. **Crie e ative um ambiente virtual:**
+   - **Windows (PowerShell):**
+     ```powershell
+     python -m venv venv
+     .\venv\Scripts\Activate.ps1
+     ```
+   - **Linux / macOS:**
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+
+3. **Instale as dependências:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Execute a aplicação:**
+   ```bash
+   python main.py
+   ```
+
+---
+
+### Opção 2: Execução via Docker e Docker Compose
+
+O Docker é ideal para rodar o projeto em um ambiente totalmente isolado e pré-configurado com as bibliotecas do GTK+3 e Tkinter.
+
+#### No Linux / WSL2 (com servidor X11 habilitado):
+
+1. **Permita a conexão da interface gráfica ao servidor X11:**
+   ```bash
+   xhost +local:docker
+   ```
+
+2. **Suba o container com o Docker Compose:**
+   ```bash
+   docker-compose up --build
+   ```
+
+#### No Windows (usando Docker Desktop + X-Server):
+Para abrir a interface gráfica do Tkinter dentro de um container Docker no Windows:
+1. Inicie um servidor X no Windows (ex: **VcXsrv** ou **Xming**).
+2. Execute o comando:
+   ```cmd
+   docker-compose up --build
+   ```
+
+---
+
+## 📊 Estrutura e Formato dos Dados de Entrada
+
+### 1. Relatórios de Auditoria (CSV)
+O sistema exige dois arquivos CSV principais:
+- **Check-outs:** Contém o histórico de reservas finalizadas.
+- **Reservas Emitidas:** Contém o volume de reservas captadas no período.
+
+**Mapeamento das Colunas Esperadas:**
+| Nome da Coluna no CSV | Mapeamento no Sistema | Descrição |
+| :--- | :--- | :--- |
+| `textBox17` | Canal | Nome do Canal de Venda (OTAs, Direto, etc.) |
+| `textBox13` | Categoria | Categoria do Quarto/Acomodação |
+| `textBox20` | CheckIn | Data de Entrada (`DD/MM/YYYY`) |
+| `textBox19` | CheckOut | Data de Saída (`DD/MM/YYYY`) |
+| `textBox22` | Receita | Valor monetário da reserva (ex: `1.250,00 BRL`) |
+| `textBox3` | Status | Status da reserva |
+| `textBox11` | DataReserva | Data de emissão da reserva |
+
+### 2. Planilha de Pickup (Excel `.xlsx`) - *Opcional*
+Permite comparar a evolução diária e o fechamento do mês contra o ano anterior (YoY):
+- Deve possuir uma aba com `evolution_table` no nome para análise diária.
+- Deve possuir uma aba com `pickup_table` no nome para fechamento consolidado.
+
+---
+
+## 📈 Relatórios Gerados
+
+Ao clicar no botão **GERAR RELATÓRIOS**, a aplicação salvará no diretório de destino:
+
+1. **`<Nome_Arquivo>.xlsx`**:
+   - `Cat_CO`: Resumo de check-outs agrupados por Categoria de Acomodação (ADR, LOS, Receita).
+   - `Canal_CO`: Resumo de check-outs agrupados por Canal de Venda (Receita, Reservas, LOS, ADR, ADS, Share %).
+   - `Canal_RE`: Resumo de reservas emitidas agrupadas por Canal de Venda.
+
+2. **`<Nome_Arquivo>.docx`**:
+   - Documento no formato Microsoft Word pronto para apresentação gerencial ao cliente, contendo tabelas estilizadas, resumo de métricas e gráficos de tendência YoY.
+
+3. **`<Nome_Arquivo>.pdf`**:
+   - **Lâmina de Performance Executive PDF**, layout responsivo com visual corporativo moderno, cartões de KPIs principais e lâminas extras dos canais (Booking.com, Expedia).
+
+---
+
+## 📄 Licença e Créditos
+
+Desenvolvido para **Revinn Estratégias** - Consultoria e Estratégia Hoteleira. Todos os direitos reservados.
