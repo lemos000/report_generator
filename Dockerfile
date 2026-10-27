@@ -1,44 +1,51 @@
 # Imagem base oficial do Python
 FROM python:3.11-slim
 
-# Evita que o Python grave arquivos .pyc no disco e habilita stdout sem buffer
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:0
+# Evita .pyc no disco, habilita stdout sem buffer e define fuso/locale
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DISPLAY=:0 \
+    TZ=America/Sao_Paulo \
+    LANG=C.UTF-8
 
-# Instala dependências do sistema operacional necessárias para:
-# 1. WeasyPrint (Pango, Cairo, GDK-Pixbuf, Fontes)
-# 2. CustomTkinter / Tkinter (python3-tk, X11 libraries, Xvfb para execução headless se necessário)
+# Dependências de sistema (somente runtime — todas as libs Python usadas possuem wheels):
+# 1. WeasyPrint: Pango, HarfBuzz, Cairo, GDK-Pixbuf, fontes, shared-mime-info
+# 2. CustomTkinter / Tkinter: Tcl/Tk + bibliotecas X11
+# 3. ca-certificates: necessário para baixar as fontes do Google Fonts durante a geração do PDF
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    python3-tk \
-    tk-dev \
-    tcl-dev \
+    libpango-1.0-0 \
     libpangocairo-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz0b \
     libcairo2 \
     libgdk-pixbuf-2.0-0 \
-    libffi-dev \
     shared-mime-info \
     fontconfig \
     fonts-dejavu-core \
     fonts-liberation \
+    libtk8.6 \
+    libtcl8.6 \
     libx11-6 \
     libxext6 \
     libxrender1 \
-    xvfb \
+    libxft2 \
+    ca-certificates \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho no container
 WORKDIR /app
 
-# Copia e instala as dependências do Python
+# Instala as dependências Python primeiro (aproveita cache de camadas)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copia o código-fonte da aplicação
+# Copia o código-fonte (src/, Logo Revinn/, main.py...)
 COPY . .
 
-# Comando padrão para iniciar a aplicação
+# Pasta padrão para salvar os relatórios gerados
+RUN mkdir -p /output
+VOLUME ["/output"]
+
 CMD ["python", "main.py"]

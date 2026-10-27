@@ -121,8 +121,8 @@ class TableGenerator:
         }).reset_index()
         rel1.columns = ['Categoria', 'Receita', 'LOS_Total', 'LOS_Media']
         rel1['ADR'] = (rel1['Receita'] / rel1['LOS_Total']).fillna(0)
-        rel1 = rel1.rename(columns={'LOS_Media': 'LOS'})[['Categoria', 'ADR', 'LOS', 'Receita']]
-        rel1 = rel1.sort_values(by='Receita', ascending=False)
+        rel1 = rel1.rename(columns={'LOS_Media': 'LOS', 'LOS_Total': 'RN'})[['Categoria', 'ADR', 'LOS', 'RN', 'Receita']]
+        rel1 = rel1.sort_values(by='ADR', ascending=False)
 
         # Relatório 2 & 3: Por Canal
         def group_by_canal(df):
@@ -145,3 +145,28 @@ class TableGenerator:
             return agg[['Canal', 'Receita', 'Reservas', 'LOS', 'ADR', 'ADS', 'Share (%)']]
 
         return rel1, group_by_canal(df_co), group_by_canal(df_re)
+
+    @staticmethod
+    def generate_booking_distribution(df: pd.DataFrame, date_col: str = 'DataReserva') -> pd.DataFrame:
+        """
+        Gera tabela de distribuição de reservas por Mês/Ano de uma coluna de data.
+        Colunas: Mês/Ano, Receita, Share de Receita (%), Reservas, Diária Média
+        date_col: 'DataReserva' para distribuição de emissão, 'CheckOut' para previsto de hospedagem.
+        """
+        df_valid = df.dropna(subset=[date_col]).copy()
+        df_valid['MesAno'] = df_valid[date_col].dt.to_period('M')
+
+        agg = df_valid.groupby('MesAno').agg(
+            Receita=('Receita', 'sum'),
+            Reservas=('Receita', 'count'),
+            Noites=('LOS_Calc', 'sum')
+        ).reset_index()
+
+        total_receita = agg['Receita'].sum()
+
+        agg['Share de Receita (%)'] = (agg['Receita'] / total_receita * 100).fillna(0)
+        agg['Diária Média'] = (agg['Receita'] / agg['Noites'].replace(0, 1)).fillna(0)
+        agg['Mês/Ano'] = agg['MesAno'].dt.strftime('%b/%Y')
+        agg = agg.sort_values('MesAno')
+
+        return agg[['Mês/Ano', 'Receita', 'Share de Receita (%)', 'Reservas', 'Diária Média']]

@@ -144,7 +144,7 @@ class FileExporter:
 
         # --- Cover ---
         # Logo at top
-        logo_path = self._get_resource_path('image.png')
+        logo_path = self._get_resource_path(os.path.join('Logo Revinn', '27_1.png'))
         if os.path.exists(logo_path):
             p_logo = doc.add_paragraph()
             p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -479,10 +479,21 @@ class FileExporter:
         except (ValueError, TypeError):
             return str(val)
 
-    def export_to_pdf(self, dataframes, summaries, evol_df, closing_df, output_path, property_name="[NOME DA PROPRIEDADE]", reference="", additional_sections=None):
+    def export_to_pdf(self, dataframes, summaries, evol_df, closing_df, output_path, property_name="[NOME DA PROPRIEDADE]", reference="", additional_sections=None, df_co=None, df_re=None, black_cover=False):
         # Resolve logo.png URL
-        logo_path = os.path.abspath("logo.png")
+        logo_path = os.path.abspath(os.path.join('Logo Revinn', 'Logo Revinn.png'))
         logo_url = "file:///" + logo_path.replace("\\", "/") if os.path.exists(logo_path) else ""
+        logo_white_path = os.path.abspath(os.path.join('Logo Revinn', 'Logo Revinn Branco.png'))
+        logo_white_url = "file:///" + logo_white_path.replace("\\", "/") if os.path.exists(logo_white_path) else logo_url
+        # Paleta da capa: turquesa Revinn (padrão) ou preta (opção)
+        if black_cover:
+            logo_cover_url = logo_url
+            cov_bg, cov_title, cov_ref, cov_border = "#050707", "#9fd9d2", "#8e9a9a", "#1f2a2a"
+            cov_ptitle, cov_ptext, cov_date = "#159F92", "#8e9a9a", "#cfd8d8"
+        else:
+            logo_cover_url = logo_white_url
+            cov_bg, cov_title, cov_ref, cov_border = "#159F92", "#003d3d", "#e6f6f4", "rgba(255,255,255,0.45)"
+            cov_ptitle, cov_ptext, cov_date = "#003d3d", "#eafaf8", "#ffffff"
 
         # 1. Configurar caminhos do DLL do GTK3 no Windows para evitar falhas do WeasyPrint
         if os.name == 'nt':
@@ -638,7 +649,7 @@ class FileExporter:
             {make_kpi_card("Receita Líquida (YoY)", receita_val, receita_var, receita_var_class, past_rec_str)}
             {make_kpi_card("Taxa de Ocupação (YoY)", ocupacao_val, ocupacao_var, ocupacao_var_class, past_occ_str)}
             {make_kpi_card("Diária Média - ADR (YoY)", adr_val, adr_var, adr_var_class, past_adr_str)}
-            {make_kpi_card("RevPAR Consolidado (YoY)", revpar_val, revpar_var, revpar_var_class, past_rev_str)}
+            {make_kpi_card("RevPAR (YoY)", revpar_val, revpar_var, revpar_var_class, past_rev_str)}
         </div>
         """
 
@@ -647,11 +658,13 @@ class FileExporter:
         tabela_categorias_rows = []
         df_cat = dataframes[0]
         for _, row in df_cat.iterrows():
+            rn_val = int(row['RN']) if 'RN' in row and not pd.isna(row['RN']) else 0
             tabela_categorias_rows.append(f"""
             <tr>
                 <td>{row['Categoria']}</td>
                 <td>{self.format_value(row['ADR'], 'ADR')}</td>
                 <td>{self.format_decimal(row['LOS'])}</td>
+                <td>{rn_val}</td>
                 <td>{self.format_value(row['Receita'], 'Receita')}</td>
             </tr>
             """)
@@ -662,23 +675,30 @@ class FileExporter:
             tot_res = co_sum.get('total_reservas', 1)
             tot_adr = tot_rec / tot_nights if tot_nights > 0 else 0
             tot_los = tot_nights / tot_res if tot_res > 0 else 0
+            tot_rn = int(tot_nights)
             tabela_categorias_rows.append(f"""
             <tr class="total-row">
                 <td>TOTAL</td>
                 <td>{self.format_value(tot_adr, 'ADR')}</td>
                 <td>{self.format_decimal(tot_los)}</td>
+                <td>{tot_rn}</td>
                 <td>{self.format_value(tot_rec, 'Receita')}</td>
             </tr>
             """)
         tabela_categorias_html = "\n".join(tabela_categorias_rows)
 
         # Tabela 2: Atribuição de Performance por Canais de Emissão (Check-outs)
+        # Trunca o nome do canal para no máximo 2 palavras
+        def trunc_canal(name, max_words=2):
+            words = str(name).split()
+            return ' '.join(words[:max_words]) if len(words) > max_words else str(name)
+
         tabela_emissoes_passadas_rows = []
         df_canal_co = dataframes[1]
         for _, row in df_canal_co.iterrows():
             tabela_emissoes_passadas_rows.append(f"""
             <tr>
-                <td>{row['Canal']}</td>
+                <td>{trunc_canal(row['Canal'])}</td>
                 <td>{self.format_value(row['Receita'], 'Receita')}</td>
                 <td>{int(row['Reservas'])}</td>
                 <td>{self.format_decimal(row['LOS'])}</td>
@@ -714,9 +734,10 @@ class FileExporter:
         for _, row in df_canal_re.iterrows():
             tabela_emissoes_futuras_rows.append(f"""
             <tr>
-                <td>{row['Canal']}</td>
+                <td>{trunc_canal(row['Canal'])}</td>
                 <td>{self.format_value(row['Receita'], 'Receita')}</td>
                 <td>{int(row['Reservas'])}</td>
+                <td>{self.format_decimal(row['LOS'])}</td>
                 <td>{self.format_value(row['ADR'], 'ADR')}</td>
                 <td>{int(row['ADS'])}</td>
                 <td>{self.format_decimal(row['Share (%)'])}%</td>
@@ -727,6 +748,7 @@ class FileExporter:
             tot_rec = re_sum.get('total_receita', 0)
             tot_res = re_sum.get('total_reservas', 0)
             tot_nights = re_sum.get('total_noites', 0)
+            tot_los_re = tot_nights / tot_res if tot_res > 0 else 0
             tot_adr = tot_rec / tot_nights if tot_nights > 0 else 0
             tot_ads = df_canal_re['ADS'].mean() if not df_canal_re.empty else 0
             tabela_emissoes_futuras_rows.append(f"""
@@ -734,6 +756,7 @@ class FileExporter:
                 <td>TOTAL</td>
                 <td>{self.format_value(tot_rec, 'Receita')}</td>
                 <td>{tot_res}</td>
+                <td>{self.format_decimal(tot_los_re)}</td>
                 <td>{self.format_value(tot_adr, 'ADR')}</td>
                 <td>{f"{tot_ads:.1f}".replace('.', ',')}</td>
                 <td>100,00%</td>
@@ -741,9 +764,56 @@ class FileExporter:
             """)
         tabela_emissoes_futuras_html = "\n".join(tabela_emissoes_futuras_rows)
 
-        # 3.5 Construir HTML para as seções adicionais dinâmicas
+        # 3.5 Construir HTML para as tabelas de Distribuição de Reservas por Data de Emissão e Check-out
+        from src.visualization.visualizers import TableGenerator
+
+        def _build_dist_html(df_raw, date_col='DataReserva'):
+            """Gera linhas HTML para a tabela de distribuição de reservas."""
+            if df_raw is None or df_raw.empty:
+                return "<tr><td colspan='5'>Dados não disponíveis.</td></tr>"
+            dist = TableGenerator.generate_booking_distribution(df_raw, date_col=date_col)
+            rows = []
+            for _, row in dist.iterrows():
+                rows.append(f"""
+            <tr>
+                <td>{row['Mês/Ano']}</td>
+                <td>{self.format_value(row['Receita'], 'Receita')}</td>
+                <td>{self.format_decimal(row['Share de Receita (%)'])}%</td>
+                <td>{int(row['Reservas'])}</td>
+                <td>{self.format_value(row['Diária Média'], 'ADR')}</td>
+            </tr>""")
+            # Linha de TOTAL — calcula ADR total diretamente dos dados brutos
+            tot_receita = dist['Receita'].sum()
+            tot_reservas = int(dist['Reservas'].sum())
+            df_valid_noites = df_raw.dropna(subset=[date_col])
+            tot_noites = df_valid_noites['LOS_Calc'].sum() if 'LOS_Calc' in df_valid_noites.columns else 1
+            tot_adr = tot_receita / tot_noites if tot_noites > 0 else 0
+            rows.append(f"""
+            <tr class="total-row">
+                <td>TOTAL</td>
+                <td>{self.format_value(tot_receita, 'Receita')}</td>
+                <td>100,00%</td>
+                <td>{tot_reservas}</td>
+                <td>{self.format_value(tot_adr, 'ADR')}</td>
+            </tr>""")
+            return "\n".join(rows)
+
+        tabela_dist_co_html = _build_dist_html(df_co, date_col='DataReserva')
+        tabela_dist_re_html = _build_dist_html(df_re, date_col='CheckOut')
+
+        # 3.6 Construir HTML para as seções adicionais dinâmicas
         additional_sections_html = ""
         if additional_sections:
+            additional_sections_html += """
+            <!-- SUBCAPA: Análise de Canais -->
+            <div style="page-break-before: always; page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 80vh; text-align: center; padding: 40mm 20mm;">
+                <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto 30px auto; border-radius: 2px;"></div>
+                <p style="font-family: 'Inter', sans-serif; font-size: 9pt; font-weight: 600; color: #159F92; text-transform: uppercase; letter-spacing: 3px; margin: 0 0 16px 0;">Análise de</p>
+                <h2 style="font-family: 'Poppins', sans-serif; font-size: 28pt; font-weight: 700; color: #005151; text-transform: uppercase; margin: 0 0 12px 0; line-height: 1.1;">Canais</h2>
+                <p style="font-family: 'Inter', sans-serif; font-size: 11pt; color: #7f8c8d; margin: 0 0 40px 0;">Performance dos Canais de Distribuição</p>
+                <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto; border-radius: 2px;"></div>
+            </div>
+            """
             for sec in additional_sections:
                 title = sec.get("title", "").strip()
                 desc = sec.get("description", "").strip()
@@ -760,15 +830,6 @@ class FileExporter:
                 
                 additional_sections_html += f"""
                 <div style="page-break-before: always;">
-                    <div class="table-row header-container">
-                        <div class="table-cell" style="width: 50%; vertical-align: middle;">
-                            <img src="{logo_url}" style="height: 100px; width: auto;" />
-                        </div>
-                        <div class="table-cell doc-info" style="width: 50%; vertical-align: middle;">
-                            <h1>{property_name}</h1>
-                            <p>Lâmina de Performance Mensal &bull; {reference}</p>
-                        </div>
-                    </div>
                 """
                 
                 if title:
@@ -779,62 +840,31 @@ class FileExporter:
                 if desc:
                     formatted_desc = desc.replace("\n", "<br>")
                     additional_sections_html += f"""
-                    <div style="font-size: 9.5pt; color: #2c3e50; line-height: 1.5; margin-bottom: 20px; text-align: justify; padding: 10px; background: #f8f9fa; border-left: 3px solid #159F92; border: 1px solid #e2e8f0; border-left-width: 3px; border-left-color: #159F92; border-radius: 0 4px 4px 0; font-family: 'Inter', sans-serif;">
+                    <div style="font-size: 9.5pt; color: #2c3e50; line-height: 1.5; margin-bottom: 15px; text-align: justify; padding: 10px; background: #f8f9fa; border-left: 3px solid #159F92; border: 1px solid #e2e8f0; border-left-width: 3px; border-left-color: #159F92; border-radius: 0 4px 4px 0; font-family: 'Inter', sans-serif;">
                         {formatted_desc}
                     </div>
                     """
                 
                 if img_paths:
-                    if gallery_class == "booking-gallery":
-                        # Generate the simple but highly robust inline-block layout for Booking
-                        resolved_urls = []
-                        for img_p in img_paths:
-                            if os.path.exists(img_p):
-                                clean_path = os.path.abspath(img_p).replace("\\", "/")
-                                if not clean_path.startswith("/"):
-                                    clean_path = "/" + clean_path
-                                resolved_urls.append(f"file://{clean_path}")
-                        
-                        if len(resolved_urls) >= 1:
-                            img1 = resolved_urls[0]
-                            img2 = resolved_urls[1] if len(resolved_urls) > 1 else ""
-                            img3 = resolved_urls[2] if len(resolved_urls) > 2 else ""
+                    resolved_urls = []
+                    for img_p in img_paths:
+                        if os.path.exists(img_p):
+                            clean_path = os.path.abspath(img_p).replace("\\", "/")
+                            if not clean_path.startswith("/"):
+                                clean_path = "/" + clean_path
+                            resolved_urls.append(f"file://{clean_path}")
+                    
+                    if resolved_urls:
+                        additional_sections_html += '\n<div style="width: 100%; margin-top: 10px;">'
+                        for idx, img_url in enumerate(resolved_urls):
+                            # Quebra de página a cada 2 imagens para garantir exatamente 2 imagens por folha + cabeçalho
+                            if idx > 0 and idx % 2 == 0:
+                                additional_sections_html += '\n    <div style="page-break-before: always; height: 1px;"></div>'
                             
-                            additional_sections_html += '\n<table class="booking-table-layout">'
-                            additional_sections_html += f'\n    <tr><td colspan="2" style="padding-bottom: 8px !important;"><img src="{img1}" class="gallery-img-booking-1" /></td></tr>'
-                            if img2 or img3:
-                                additional_sections_html += '\n    <tr>'
-                                if img2:
-                                    additional_sections_html += f'<td style="width: 70% !important; padding-right: 4px !important;"><img src="{img2}" class="gallery-img-booking-2" /></td>'
-                                if img3:
-                                    additional_sections_html += f'<td style="width: 30% !important; padding-left: 4px !important;"><img src="{img3}" class="gallery-img-booking-3" /></td>'
-                                additional_sections_html += '\n    </tr>'
-                            additional_sections_html += '\n</table>'
-                    else:
-                        additional_sections_html += f'\n<div class="{gallery_class}">'
-                        for idx, img_p in enumerate(img_paths):
-                            if os.path.exists(img_p):
-                                clean_path = os.path.abspath(img_p).replace("\\", "/")
-                                if not clean_path.startswith("/"):
-                                    clean_path = "/" + clean_path
-                                file_url = f"file://{clean_path}"
-                                
-                                width_style = ""
-                                if gallery_class == "image-gallery":
-                                    try:
-                                        # pyrefly: ignore [missing-import]
-                                        from PIL import Image
-                                        with Image.open(img_p) as im:
-                                            w, h = im.size
-                                            if w > 0:
-                                                width_style = f"width: {w}px;"
-                                    except Exception:
-                                        pass
-                                    
-                                if gallery_class == "expedia-gallery":
-                                    additional_sections_html += f'\n    <div class="grid-item-expedia"><img src="{file_url}" class="gallery-img" /></div>'
-                                else:
-                                    additional_sections_html += f'\n    <img src="{file_url}" class="gallery-img" style="{width_style}" />'
+                            additional_sections_html += f'''
+                            <div style="width: 100%; margin-bottom: 12px; text-align: center;">
+                                <img src="{img_url}" style="max-width: 100%; width: 100%; max-height: 105mm; object-fit: contain; display: block; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 4px; box-sizing: border-box;" />
+                            </div>'''
                         additional_sections_html += '\n</div>'
                 
                 additional_sections_html += """
@@ -852,10 +882,14 @@ class FileExporter:
 
         @page {{
             size: A4;
-            margin: 15mm 12mm;
+            margin: 32mm 12mm 15mm 12mm;
             background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='1000' viewBox='0 0 800 1000'><text fill='rgba(240,240,240,0.45)' font-family='Inter, sans-serif' font-size='85' font-weight='bold' x='100' y='600' transform='rotate(-45 300 600)'>Revinn</text></svg>");
+            @top-left {{
+                content: element(running-header);
+                width: 100%;
+            }}
             @bottom-right {{
-                content: "Pág. " counter(page);
+                content: "p. " counter(page);
                 font-family: 'Inter', sans-serif;
                 font-size: 8pt;
                 color: #7f8c8d;
@@ -863,9 +897,30 @@ class FileExporter:
         }}
 
         @page :first {{
+            margin: 0;
+            background: {cov_bg};
+            @top-left {{
+                content: "";
+            }}
             @bottom-right {{
                 content: "";
             }}
+        }}
+
+        @page contracapa {{
+            margin: 15mm 12mm;
+            border: 1px solid #005151;
+            @top-left {{
+                content: "";
+            }}
+            @bottom-right {{
+                content: "";
+            }}
+        }}
+
+        .running-header {{
+            position: running(running-header);
+            width: 100%;
         }}
         
         *, *::before, *::after {{
@@ -884,13 +939,15 @@ class FileExporter:
         
         /* Cover Page Styling */
         .cover-page {{
-            height: 92%;
+            height: 296mm;
+            width: 210mm;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: 20mm 10mm;
+            padding: 30mm 22mm 20mm 22mm;
             page-break-after: always;
             box-sizing: border-box;
+            background: {cov_bg};
         }}
         
         .cover-logo {{
@@ -926,7 +983,7 @@ class FileExporter:
         .cover-hotel-name {{
             font-family: 'Poppins', sans-serif;
             font-size: 26pt;
-            color: #005151;
+            color: #ffffff;
             text-transform: uppercase;
             font-weight: 700;
             margin: 0 0 10px 0;
@@ -936,7 +993,7 @@ class FileExporter:
         .cover-doc-title {{
             font-family: 'Poppins', sans-serif;
             font-size: 14pt;
-            color: #2c3e50;
+            color: {cov_title};
             text-transform: uppercase;
             font-weight: 600;
             margin: 0 0 5px 0;
@@ -946,14 +1003,14 @@ class FileExporter:
         .cover-doc-reference {{
             font-family: 'Inter', sans-serif;
             font-size: 12pt;
-            color: #7f8c8d;
+            color: {cov_ref};
             font-weight: 400;
             margin: 0;
         }}
         
         .cover-footer {{
             margin-top: auto;
-            border-top: 1px solid #e2e8f0;
+            border-top: 1px solid {cov_border};
             padding-top: 20px;
             text-align: center;
         }}
@@ -962,7 +1019,7 @@ class FileExporter:
             font-family: 'Poppins', sans-serif;
             font-size: 8pt;
             font-weight: 700;
-            color: #005151;
+            color: {cov_ptitle};
             margin-bottom: 8px;
             letter-spacing: 0.5px;
         }}
@@ -970,7 +1027,7 @@ class FileExporter:
         .cover-privacy-text {{
             font-family: 'Inter', sans-serif;
             font-size: 7.5pt;
-            color: #7f8c8d;
+            color: {cov_ptext};
             line-height: 1.5;
             max-width: 500px;
             margin: 0 auto 20px auto;
@@ -980,7 +1037,7 @@ class FileExporter:
         .cover-date {{
             font-family: 'Inter', sans-serif;
             font-size: 9pt;
-            color: #2c3e50;
+            color: {cov_date};
             margin: 0;
         }}
         
@@ -1276,13 +1333,55 @@ class FileExporter:
             border-top: 1.5px solid #005151;
             border-bottom: 2px solid #005151;
         }}
+
+        /* Running header — aparece em todas as páginas exceto a capa */
+        #running-header {{
+            position: running(running-header);
+            display: table;
+            width: 100%;
+            border-bottom: 2px solid #159F92;
+            padding-bottom: 6px;
+            table-layout: fixed;
+        }}
+        #running-header .rh-logo {{
+            display: table-cell;
+            width: 25%;
+            vertical-align: middle;
+        }}
+        #running-header .rh-logo img {{
+            height: 54px;
+            width: auto;
+            max-width: 180px;
+            display: block;
+        }}
+        #running-header .rh-info {{
+            display: table-cell;
+            width: 75%;
+            vertical-align: middle;
+            text-align: right;
+        }}
+        #running-header .rh-info h1 {{
+            font-family: 'Poppins', sans-serif;
+            font-size: 11pt;
+            font-weight: 700;
+            color: #005151;
+            text-transform: uppercase;
+            margin: 0;
+        }}
+        #running-header .rh-info p {{
+            font-family: 'Inter', sans-serif;
+            font-size: 8pt;
+            color: #7f8c8d;
+            font-weight: 600;
+            margin: 2px 0 0 0;
+        }}
     </style>
 </head>
 <body>
 
 <div class="cover-page">
     <div class="cover-logo">
-        <img src="{logo_url}" style="height: 180px; width: auto; display: block; margin: 0 auto;" />
+        <img src="{logo_cover_url}" style="height: 180px; width: auto; display: block; margin: 0 auto;" />
     </div>
     
     <div class="cover-main">
@@ -1301,28 +1400,36 @@ class FileExporter:
     </div>
 </div>
 
+<div id="running-header">
+    <div class="rh-logo"><img src="{logo_url}" /></div>
+    <div class="rh-info">
+        <h1>{property_name}</h1>
+        <p>Lâmina de Performance Mensal &bull; {reference}</p>
+    </div>
+</div>
+
 <div class="container">
 
-    <div class="table-row header-container">
-        <div class="table-cell" style="width: 50%; vertical-align: middle;">
-            <img src="{logo_url}" style="height: 100px; width: auto;" />
-        </div>
-        <div class="table-cell doc-info" style="width: 50%; vertical-align: middle;">
-            <h1>{property_name}</h1>
-            <p>Lâmina de Performance Mensal &bull; {reference}</p>
-        </div>
+    <!-- SUBCAPA: Análise de Check-outs -->
+    <div style="page-break-before: always; page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 80vh; text-align: center; padding: 40mm 20mm;">
+        <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto 30px auto; border-radius: 2px;"></div>
+        <p style="font-family: 'Inter', sans-serif; font-size: 9pt; font-weight: 600; color: #159F92; text-transform: uppercase; letter-spacing: 3px; margin: 0 0 16px 0;">Análise de</p>
+        <h2 style="font-family: 'Poppins', sans-serif; font-size: 28pt; font-weight: 700; color: #005151; text-transform: uppercase; margin: 0 0 12px 0; line-height: 1.1;">Check-outs</h2>
+        <p style="font-family: 'Inter', sans-serif; font-size: 11pt; color: #7f8c8d; margin: 0 0 40px 0;">Desempenho Realizado do Período</p>
+        <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto; border-radius: 2px;"></div>
     </div>
 
     {kpi_cards_html}
 
-    <div class="section-header">Desempenho por Categoria de Acomodação (Check-outs)</div>
+    <div class="section-header">Check-outs por Categoria</div>
     <table>
         <thead>
             <tr>
                 <th>Categoria de Quarto</th>
-                <th>ADR Realizado</th>
-                <th>LOS Média (Noites)</th>
-                <th>Métricas de Alocação Absoluta</th>
+                <th>ADR</th>
+                <th>LOS</th>
+                <th>Room Nights</th>
+                <th>Receita</th>
             </tr>
         </thead>
         <tbody>
@@ -1330,16 +1437,16 @@ class FileExporter:
         </tbody>
     </table>
 
-    <div class="section-header">Atribuição de Performance por Canais de Emissão (Check-outs)</div>
+    <div class="section-header">Check-outs por Canal</div>
     <table>
         <thead>
             <tr>
-                <th>Canal de Distribuição</th>
+                <th>Canal</th>
                 <th>Receita Bruta</th>
                 <th>Reservas</th>
                 <th>LOS</th>
                 <th>ADR</th>
-                <th>ADS (Janela)</th>
+                <th>ADS</th>
                 <th>Share (%)</th>
             </tr>
         </thead>
@@ -1348,16 +1455,42 @@ class FileExporter:
         </tbody>
     </table>
 
-    <div class="section-header">Carteira de Captação Futura por Canais de Emissão (Pacing / OTB)</div>
+    <div class="section-header">Distribuição de Reservas por Data de Emissão (Check-outs)</div>
     <table>
         <thead>
             <tr>
-                <th>Canal Temático</th>
-                <th>Volume Captado</th>
+                <th>Mês/Ano</th>
+                <th>Receita</th>
+                <th>Share de Receita</th>
                 <th>Reservas</th>
-                <th>ADR Médio</th>
-                <th>ADS (Antecedência)</th>
-                <th>Share OTB (%)</th>
+                <th>Diária Média</th>
+            </tr>
+        </thead>
+        <tbody>
+            {tabela_dist_co_html}
+        </tbody>
+    </table>
+
+    <!-- SUBCAPA: Separação entre Análise de Check-outs e Análise de Emissões -->
+    <div style="page-break-before: always; page-break-after: always; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 80vh; text-align: center; padding: 40mm 20mm;">
+        <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto 30px auto; border-radius: 2px;"></div>
+        <p style="font-family: 'Inter', sans-serif; font-size: 9pt; font-weight: 600; color: #159F92; text-transform: uppercase; letter-spacing: 3px; margin: 0 0 16px 0;">Análise de</p>
+        <h2 style="font-family: 'Poppins', sans-serif; font-size: 28pt; font-weight: 700; color: #005151; text-transform: uppercase; margin: 0 0 12px 0; line-height: 1.1;">Emissões</h2>
+        <p style="font-family: 'Inter', sans-serif; font-size: 11pt; color: #7f8c8d; margin: 0 0 40px 0;">Captação e Carteira OTB</p>
+        <div style="width: 60px; height: 4px; background: #159F92; margin: 0 auto; border-radius: 2px;"></div>
+    </div>
+
+    <div class="section-header">Emissão por Canal</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Canal</th>
+                <th>Volume</th>
+                <th>Reservas</th>
+                <th>LOS</th>
+                <th>ADR</th>
+                <th>ADS</th>
+                <th>Share (%)</th>
             </tr>
         </thead>
         <tbody>
@@ -1365,7 +1498,129 @@ class FileExporter:
         </tbody>
     </table>
 
+    <div class="section-header">Distribuição de Reservas por Previsto de Hospedagem</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Mês/Ano</th>
+                <th>Receita</th>
+                <th>Share de Receita</th>
+                <th>Reservas</th>
+                <th>Diária Média</th>
+            </tr>
+        </thead>
+        <tbody>
+            {tabela_dist_re_html}
+        </tbody>
+    </table>
+
     {additional_sections_html}
+
+    <!-- ===== GLOSSÁRIO ===== -->
+    <div style="page-break-before: always;">
+
+        <div class="section-header" style="margin-top: 0;">Glossário de Termos</div>
+
+        <div style="font-family: 'Inter', sans-serif; font-size: 8.5pt; color: #2c3e50; line-height: 1.6;">
+
+            <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-bottom: 0; page-break-inside: auto;">
+                <thead>
+                    <tr>
+                        <th style="width: 22%; text-align: left;">Termo</th>
+                        <th style="text-align: left;">Definição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">ADR</td>
+                        <td><strong>Average Daily Rate</strong> — Diária Média. Receita total de hospedagem dividida pelo número de diárias (noites) vendidas. Mede o valor médio cobrado por noite, independente do número de quartos.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">RevPAR</td>
+                        <td><strong>Revenue Per Available Room</strong> — Receita por Quarto Disponível. Combina ocupação e diária média em um único indicador: ADR × Taxa de Ocupação. É a métrica mais completa de eficiência de receita.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">LOS</td>
+                        <td><strong>Length of Stay</strong> — Tempo de Permanência. Número médio de noites que os hóspedes permanecem no hotel. Influencia diretamente na gestão de disponibilidade e precificação mínima.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">ADS</td>
+                        <td><strong>Average Days to Stay</strong> — Janela de Antecedência Média. Número médio de dias entre a data de emissão da reserva e o check-in. Também chamado de <em>Lead Time</em>. Indica com quanto tempo de antecedência os hóspedes reservam.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">OTB</td>
+                        <td><strong>On The Books</strong> — Carteira de Reservas. Volume de reservas já captadas para datas futuras. É a carteira atual de receita e ocupação já confirmada para períodos que ainda não chegaram.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Pacing</td>
+                        <td>Ritmo de captação de reservas ao longo do tempo. Compara a velocidade atual de acumulação de OTB em relação ao mesmo período do ano anterior, permitindo antecipar se um mês futuro ficará abaixo ou acima da expectativa.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Check-out</td>
+                        <td>Data de saída do hóspede. No contexto deste relatório, "análise de check-outs" refere-se às reservas cujo período de hospedagem ocorreu dentro do mês de referência — ou seja, o desempenho realizado.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Emissão</td>
+                        <td>Data em que a reserva foi feita (booking date). "Análise de emissões" agrupa as reservas pelo momento em que foram criadas, independentemente de quando a hospedagem ocorrerá.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Room Nights (RN)</td>
+                        <td>Total de noites de hospedagem produzidas. Diferente do número de reservas: uma reserva de 3 noites conta como 3 Room Nights. É a unidade base para calcular ADR e ocupação.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Taxa de Ocupação</td>
+                        <td>Percentual de quartos disponíveis que foram efetivamente vendidos em um período. Calculada como: (Quartos Vendidos ÷ Quartos Disponíveis) × 100.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Canal de Distribuição</td>
+                        <td>Meio pelo qual a reserva foi captada. Exemplos: Booking.com, Expedia, Booking Engine próprio (site do hotel), Telefone, Agência de Viagens, Corporativo. Cada canal tem custo e perfil de hóspede diferente.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">OTA</td>
+                        <td><strong>Online Travel Agency</strong> — Agência de Viagens Online. Plataformas digitais como Booking.com, Expedia e Hoteis.com que vendem quartos de hotel mediante comissão (geralmente 15–25% da tarifa).</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Booking Engine</td>
+                        <td>Motor de reservas próprio do hotel, integrado ao site oficial. Reservas diretas via Booking Engine não pagam comissão a intermediários, gerando maior receita líquida por reserva.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">YoY</td>
+                        <td><strong>Year over Year</strong> — Variação Ano a Ano. Compara um indicador do período atual com o mesmo período do ano anterior. Ex: "+12% YoY" significa que a receita cresceu 12% em relação ao mesmo mês do ano passado.</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; color: #005151; vertical-align: top;">Share</td>
+                        <td>Participação percentual de um segmento no total. Ex: "Share do canal Booking = 35%" significa que 35% da receita total veio daquele canal.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+        </div>
+    </div>
+
+    <!-- ===== CONTRACAPA ===== -->
+    <div style="page: contracapa; page-break-before: always; height: 245mm; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; padding: 20mm 15mm; box-sizing: border-box;">
+
+        <!-- Topo: Logo -->
+        <div>
+            <img src="{logo_url}" style="height: 80px; width: auto;" />
+        </div>
+
+        <!-- Centro: Mensagem -->
+        <div>
+            <div style="width: 50px; height: 3px; background: #159F92; margin: 0 auto 30px auto; border-radius: 2px;"></div>
+            <p style="font-family: 'Inter', sans-serif; font-size: 9pt; font-weight: 600; color: #7f8c8d; text-transform: uppercase; letter-spacing: 3px; margin: 0 0 16px 0;">Lâmina de Performance Mensal</p>
+            <h2 style="font-family: 'Poppins', sans-serif; font-size: 22pt; font-weight: 700; color: #005151; margin: 0 0 12px 0; line-height: 1.2;">{property_name}</h2>
+            <p style="font-family: 'Inter', sans-serif; font-size: 12pt; color: #7f8c8d; margin: 0 0 40px 0;">{reference}</p>
+            <div style="width: 50px; height: 3px; background: #159F92; margin: 0 auto; border-radius: 2px;"></div>
+        </div>
+
+        <!-- Rodapé: Confidencialidade -->
+        <div>
+            <p style="font-family: 'Inter', sans-serif; font-size: 7.5pt; color: #005151; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Documento Confidencial</p>
+            <p style="font-family: 'Inter', sans-serif; font-size: 7pt; color: #7f8c8d; margin: 0;">Revinn Estratégias © {reference} — Todos os direitos reservados.</p>
+        </div>
+
+    </div>
 
 </div>
 

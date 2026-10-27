@@ -1,19 +1,27 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+    image: gerador_relatorios_revinn:latest
     container_name: gerador_relatorios_hotelaria
     environment:
+      # Linux/WSLg: usa o DISPLAY do host.
+      # Windows + VcXsrv/Xming: exporte DISPLAY=host.docker.internal:0.0 antes de subir.
       - DISPLAY=${DISPLAY:-:0}
       - PYTHONUNBUFFERED=1
+      - TZ=America/Sao_Paulo
     volumes:
-      # Monta o código e permite que os relatórios gerados fiquem salvos no host
+      # Código-fonte montado para desenvolvimento (alterações refletem sem rebuild)
       - .:/app
-      # Permite o compartilhamento de telas X11 no Linux/Unix (para exibir a interface gráfica)
+      # Relatórios gerados ficam disponíveis no host em ./output (selecione /output como destino na interface)
+      - ./output:/output
+      # Compartilhamento do socket X11 (Linux/WSL2)
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ipc: host
-    network_mode: host
-    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    # Aplicação gráfica: não reinicia automaticamente ao ser fechada pelo usuário
+    restart: "no"

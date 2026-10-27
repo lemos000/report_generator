@@ -5,6 +5,7 @@ import threading
 from src.core.processors import DataProcessor, PickupProcessor
 from src.visualization.visualizers import ChartGenerator, TableGenerator
 from src.infrastructure.exporters import FileExporter
+from src.ui.weekly_panel import WeeklyPanel
 
 class App(ctk.CTk):
     def __init__(self):
@@ -21,6 +22,12 @@ class App(ctk.CTk):
         self.pickup_proc = PickupProcessor()
         self.exporter = FileExporter()
         
+        self._MONTH_MAP = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+            5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+            9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+        
         self._setup_ui()
 
     def _setup_ui(self):
@@ -34,6 +41,16 @@ class App(ctk.CTk):
         
         ctk.CTkLabel(header_frame, text="Auditoria Hoteleira BI", font=("Poppins", 28, "bold")).pack(side="left")
         
+        # Seletor do tipo de relatório (canto superior direito)
+        self.report_type_var = ctk.StringVar(value="Mensal")
+        self.report_type_select = ctk.CTkComboBox(
+            header_frame, values=["Semanal", "Mensal"], variable=self.report_type_var, width=120,
+            state="readonly", font=("Inter", 12, "bold"), command=self.on_report_type_change,
+            fg_color="#159F92", border_color="#159F92", button_color="#005151", button_hover_color="#003a3a",
+            text_color="white"
+        )
+        self.report_type_select.pack(side="right", padx=(15, 0))
+        
         # Mode Toggle - Heurística #7: Flexibilidade e Eficiência
         self.mode_switch = ctk.CTkSwitch(header_frame, text="Modo Escuro", command=self.toggle_appearance, font=("Inter", 12))
         self.mode_switch.select()
@@ -42,6 +59,7 @@ class App(ctk.CTk):
         # Main Container
         container = ctk.CTkScrollableFrame(self)
         container.pack(pady=10, padx=30, fill="both", expand=True)
+        self.monthly_container = container
 
         # Seção de Arquivos - Heurística #6: Reconhecimento em vez de recordação
         self._create_section_label(container, "Fontes de Dados (CSV/XLSX)")
@@ -70,12 +88,22 @@ class App(ctk.CTk):
         self.create_static_sections(container)
 
         # Destino - Heurística #5: Prevenção de erros
+        self.black_cover_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            container, text="Capa preta", variable=self.black_cover_var,
+            font=("Inter", 12), fg_color="#159F92", hover_color="#005151"
+        ).pack(pady=(10, 0), padx=10, anchor="w")
         self._create_section_label(container, "Destino e Saída")
         self.out_entry = self._create_file_field(container, "Pasta Destino *", self.select_output_folder, "Onde os relatórios serão salvos")
         
         self.name_entry = ctk.CTkEntry(container, placeholder_text="Nome do Arquivo Final *", font=("Inter", 12))
         self.name_entry.insert(0, "Relatorio_Auditoria")
         self.name_entry.pack(pady=5, padx=10, fill="x")
+
+        # Pré-preenche a pasta de destino com a pasta Downloads do usuário
+        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        if os.path.exists(downloads_path):
+            self._fill_entry(self.out_entry, downloads_path)
 
         # Barra de Status/Progresso - Heurística #1: Visibilidade do status do sistema
         self.progress_bar = ctk.CTkProgressBar(self)
@@ -93,6 +121,22 @@ class App(ctk.CTk):
         # Log Expansível - Heurística #9: Ajuda os usuários a reconhecerem e recuperarem-se de erros
         self.log_text = ctk.CTkTextbox(self, height=100, font=("Consolas", 12))
         self.log_text.pack(pady=(0, 20), padx=30, fill="x")
+
+        # Painel do relatório Semanal (exibido apenas quando selecionado no dropdown)
+        self.weekly_panel = WeeklyPanel(self)
+
+    def on_report_type_change(self, choice):
+        """Alterna entre o formulário Mensal (já existente) e o Semanal."""
+        if choice == "Semanal":
+            self.monthly_container.pack_forget()
+            self.weekly_panel.pack(pady=10, padx=30, fill="both", expand=True, before=self.progress_bar)
+            self.process_btn.configure(text=WeeklyPanel.BUTTON_TEXT, command=self.weekly_panel.start)
+            self.title("Revinn Estratégias - Gerador de Relatórios (Semanal)")
+        else:
+            self.weekly_panel.pack_forget()
+            self.monthly_container.pack(pady=10, padx=30, fill="both", expand=True, before=self.progress_bar)
+            self.process_btn.configure(text="GERAR RELATÓRIOS", command=self.start_processing)
+            self.title("Revinn Estratégias - Gerador de Relatórios")
 
     def _create_section_label(self, parent, text):
         ctk.CTkLabel(parent, text=text, font=("Inter", 14, "bold"), text_color="#159F92").pack(pady=(15, 5), padx=10, anchor="w")
@@ -122,18 +166,88 @@ class App(ctk.CTk):
         self.log_text.see("end")
         self.status_label.configure(text=msg, text_color="white" if not is_error else "#ff4d4d")
 
-    def select_file1(self): self._fill_entry(self.file1_entry, filedialog.askopenfilename(filetypes=[("CSV", "*.csv")]))
-    def select_file2(self): self._fill_entry(self.file2_entry, filedialog.askopenfilename(filetypes=[("CSV", "*.csv")]))
+    def select_file1(self):
+        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        if path:
+            self._fill_entry(self.file1_entry, path)
+            self._autofill_from_csv(path)
+
+    def select_file2(self):
+        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        if path:
+            self._fill_entry(self.file2_entry, path)
+            self._autofill_from_csv(path)
+
     def select_pickup_file(self): self._fill_entry(self.pickup_entry, filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx")]))
     def select_output_folder(self): self._fill_entry(self.out_entry, filedialog.askdirectory())
     
     def _fill_entry(self, entry, val):
         if val: entry.delete(0, "end"); entry.insert(0, val)
 
+    def _autofill_from_csv(self, file_path: str):
+        """Lê textBox6 (hotel) e textBox32 (data referência) da primeira linha de dados do CSV
+        e pré-preenche os campos do formulário."""
+        try:
+            # Leitura tolerante a encoding
+            for enc in ('utf-8', 'latin1'):
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        lines = f.readlines()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if len(lines) < 2:
+                return
+
+            import csv, io
+            reader = csv.DictReader(io.StringIO('\n'.join(l.strip() for l in lines)))
+            first_row = next(reader, None)
+            if first_row is None:
+                return
+
+            # --- Hotel Name (textBox6) ---
+            hotel_name = (first_row.get('textBox6') or '').strip()
+
+            # --- Data de Referência (textBox32) ---
+            raw_date = (first_row.get('textBox32') or '').strip()
+            month_name = ""
+            year_str = ""
+            month_num = 0
+            if raw_date:
+                try:
+                    import datetime
+                    dt = datetime.datetime.strptime(raw_date, '%d/%m/%Y')
+                    month_num = dt.month
+                    month_name = self._MONTH_MAP.get(month_num, "")
+                    year_str = str(dt.year)
+                except ValueError:
+                    pass
+
+            # --- Preenche campos ---
+            if hotel_name:
+                self._fill_entry(self.hotel_entry, hotel_name)
+
+            if month_name:
+                self._fill_entry(self.ref_entry, f"{month_name} {year_str}")
+                self.month_var.set(month_name)
+                self.month_select.set(month_name)
+
+            # Nome do arquivo
+            if hotel_name and month_name:
+                file_name = f"Fechamento Mensal - {hotel_name} - {month_name} {year_str}"
+                self._fill_entry(self.name_entry, file_name)
+
+        except Exception as e:
+            self.log(f"Auto-preenchimento: não foi possível ler o CSV ({e})", is_error=True)
+
     def start_processing(self):
         # Coleta os dados das seções adicionais
         additional_sec_data = []
         for sec in self.additional_sections:
+            # Pula a seção se o switch estiver desligado
+            if not sec.get("switch_var", ctk.BooleanVar(value=True)).get():
+                continue
             title = sec["title_entry"].get().strip()
             desc = sec["desc_textbox"].get("1.0", "end-1c").strip()
             img_path = sec["image_entry"].get().strip()
@@ -173,9 +287,9 @@ class App(ctk.CTk):
         self.progress_bar.configure(determinate_speed=0.5)
         self.progress_bar.start()
         
-        threading.Thread(target=self.process, args=args + (additional_sec_data,), daemon=True).start()
+        threading.Thread(target=self.process, args=args + (additional_sec_data, self.black_cover_var.get()), daemon=True).start()
 
-    def process(self, f1, f2, p_file, out, name, hotel, reference, selected_month, additional_sections):
+    def process(self, f1, f2, p_file, out, name, hotel, reference, selected_month, additional_sections, black_cover=False):
         try:
             self.log("Carregando bases de dados...")
             df_co = self.data_proc.process_audit_data(f1)
@@ -221,7 +335,10 @@ class App(ctk.CTk):
                     [rel1, rel2, rel3], sums, evol_df, closing_df, base_path + ".pdf",
                     property_name=hotel if hotel else name,
                     reference=reference,
-                    additional_sections=additional_sections
+                    additional_sections=additional_sections,
+                    df_co=df_co,
+                    df_re=df_re,
+                    black_cover=black_cover
                 )
             except Exception as pdf_err:
                 self.log(f"Não foi possível gerar o PDF: {str(pdf_err)}", is_error=True)
@@ -264,21 +381,52 @@ class App(ctk.CTk):
         lbl = ctk.CTkLabel(header_frame, text=f"Seção: {label_text}", font=("Inter", 12, "bold"))
         lbl.pack(side="left")
         
+        # Switch para ativar/desativar a seção
+        switch_var = ctk.BooleanVar(value=True)
+        
+        # Widgets do card que serão habilitados/desabilitados pelo switch
+        controlled_widgets = []
+        
+        def on_switch_toggle(widgets=controlled_widgets, sv=switch_var, c=card):
+            enabled = sv.get()
+            state = "normal" if enabled else "disabled"
+            alpha_color = "#159F92" if enabled else "#cccccc"
+            c.configure(border_color=alpha_color)
+            for w in widgets:
+                try:
+                    w.configure(state=state)
+                except Exception:
+                    pass
+        
+        switch = ctk.CTkSwitch(
+            header_frame,
+            text="Ativo",
+            variable=switch_var,
+            font=("Inter", 11),
+            progress_color="#159F92",
+            button_color="#005151",
+            command=on_switch_toggle
+        )
+        switch.pack(side="right")
+        
         title_entry = ctk.CTkEntry(card, placeholder_text="Título da Seção", font=("Inter", 12))
         title_entry.insert(0, default_title)
         title_entry.pack(pady=5, padx=10, fill="x")
+        controlled_widgets.append(title_entry)
         
         lbl_desc = ctk.CTkLabel(card, text="Descrição / Conteúdo:", font=("Inter", 10))
         lbl_desc.pack(anchor="w", padx=10)
         
         desc_textbox = ctk.CTkTextbox(card, height=70, font=("Inter", 12))
         desc_textbox.pack(pady=(0, 5), padx=10, fill="x")
+        controlled_widgets.append(desc_textbox)
         
         img_frame = ctk.CTkFrame(card, fg_color="transparent")
         img_frame.pack(pady=5, padx=10, fill="x")
         
         img_entry = ctk.CTkEntry(img_frame, placeholder_text="Selecione imagens para anexar (opcional, separadas por ';')", font=("Inter", 12))
         img_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        controlled_widgets.append(img_entry)
         
         def seek_image(ent=img_entry):
             fpaths = filedialog.askopenfilenames(filetypes=[("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp")])
@@ -288,10 +436,12 @@ class App(ctk.CTk):
                 
         seek_btn = ctk.CTkButton(img_frame, text="Procurar", width=80, command=seek_image, font=("Inter", 12), fg_color="#159F92", hover_color="#005151")
         seek_btn.pack(side="right")
+        controlled_widgets.append(seek_btn)
         
         self.additional_sections.append({
             "key": label_text.lower(),
             "frame": card,
+            "switch_var": switch_var,
             "title_entry": title_entry,
             "desc_textbox": desc_textbox,
             "image_entry": img_entry

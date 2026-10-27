@@ -11,3 +11,8 @@ dist/
 venv/
 .idea/
 .vscode/
+output/
+*.spec
+build_exe.ps1
+*.csv
+*.xlsx

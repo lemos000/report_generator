@@ -26,13 +26,28 @@ Aplicação desktop profissional de **Business Intelligence e Auditoria Hoteleir
 - **Exportação Multiformato:**
   - **Excel (`.xlsx`):** Tabelas estruturadas de check-outs por categoria, por canal e reservas emitidas.
   - **Word (`.docx`):** Documento formatado no padrão corporativo da empresa (capa personalizada, tipografia Inter/Poppins, tabelas estilizadas, rodapés com numeração dinâmica).
-  - **PDF (`.pdf`):** Lâmina de Performance executiva estilizada via HTML/CSS (WeasyPrint), contendo cartões de KPIs e seções adicionais de canais (Booking.com, Expedia, etc.).
+  - **PDF (`.pdf`):** Lâmina de Performance executiva estilizada via HTML/CSS (WeasyPrint), com a seguinte estrutura:
+    - **Capa** com margem fina na cor da marca e termo de confidencialidade.
+    - **Subcapa "Análise de Check-outs"**, seguida dos KPIs (Receita, Ocupação, ADR, RevPAR) e das tabelas *Check-outs por Categoria*, *Check-outs por Canal* e *Distribuição por Data de Emissão (Check-outs)*.
+    - **Subcapa "Análise de Emissões"**, com as tabelas *Emissão por Canal* e *Distribuição de Reservas por Previsto de Hospedagem*.
+    - **Seções de canais** (Booking.com, Expedia), que podem ser ativadas/desativadas por switch na interface.
+    - **Glossário de Termos** para leitores não familiarizados com hotelaria (ADR, RevPAR, OTB, etc.).
+    - **Contracapa** apenas com margem fina (sem preenchimento sólido).
+
+- **Distribuições por Mês:** leitura flexível de datas (`DD/MM/YYYY` com fallback automático), garantindo a distribuição correta entre todos os meses.
 
 - **Interface Gráfica (GUI) Moderna:**
   - Interface desenvolvida com **CustomTkinter**.
   - Suporte a alternância entre **Modo Escuro (Dark Mode)** e **Modo Claro (Light Mode)**.
   - Seções expansíveis para inclusão de notas e capturas de tela dos canais.
+  - **Switch por canal (Booking e Expedia):** desativar o switch omite a seção de análise de performance do canal no relatório.
   - Feedback em tempo real com barra de progresso e console de log detalhado.
+
+- **Relatório Semanal (Dropdown no canto superior direito: `Semanal` / `Mensal`):**
+  - Automação a partir de planilha modelo semanal (ex: `Modelo Hotel - ... - Venda Semanal.xlsx`).
+  - Geração de PDF contendo as 3 tabelas de emissões (*Emissões por Canal*, *Emissões por Categoria* e *Evolução Semanal*) na mesma identidade visual corporativa do relatório mensal.
+  - **Capa Preta Exclusiva** no padrão Revinn (preto `#050707` + verde `#159F92`/`#005151`).
+  - **Gráficos de Benchmark (Exploratórios):** suíte com 10 visualizações distribuídas em 3 páginas ao final do PDF (evolução com média móvel e variação semanal, share de canal, mix por categoria, dia da semana de compra, antecedência ADS, permanência LOS, mix de tarifários, heatmap canal × categoria, mês de check-in e dispersão ADR × LOS) para suporte a novas análises.
 
 ---
 
@@ -47,16 +62,27 @@ report_generator/
 ├── Dockerfile                  # Imagem Docker com dependências de sistema (GTK3, Tkinter)
 ├── docker-compose.yml          # Orquestração do container Docker
 ├── .dockerignore               # Arquivos ignorados no build do Docker
+├── build_exe.ps1               # Script que gera o executável (PyInstaller) e o LEIA-ME.txt
 ├── README.md                   # Documentação do projeto
 └── src/
     ├── core/
-    │   └── processors.py       # Lógica de processamento de dados (DataProcessor, PickupProcessor)
+    │   ├── models.py           # Schemas e constantes (AuditSchema, PickupSchema, MONTH_MAP)
+    │   ├── readers.py          # Leitura de arquivos (AuditCsvReader, PickupExcelReader)
+    │   ├── processors.py       # Orquestração do processamento (DataProcessor, PickupProcessor)
+    │   ├── weekly_reader.py    # Leitor otimizado da planilha modelo semanal (WeeklyWorkbookReader)
+    │   └── utils/              # Funções puras reutilizáveis
+    │       ├── currency.py     # clean_currency
+    │       ├── dates.py        # parse_date_flex
+    │       └── files.py        # read_lines_tolerant
     ├── infrastructure/
-    │   └── exporters.py        # Exportadores de arquivos (Excel, Word docx, WeasyPrint PDF)
+    │   ├── exporters.py        # Exportadores de arquivos mensais (Excel, Word docx, WeasyPrint PDF)
+    │   └── weekly_exporter.py  # Exportador de PDF semanal com capa preta (WeasyPrint)
     ├── visualization/
-    │   └── visualizers.py      # Geradores de gráficos (Matplotlib) e relatórios tabulares
+    │   ├── visualizers.py      # Geradores de gráficos mensais e relatórios tabulares
+    │   └── weekly_charts.py    # Gráficos benchmark semanais (Matplotlib puro, thread-safe)
     └── ui/
-        └── gui.py              # Interface gráfica interativa (CustomTkinter)
+        ├── gui.py              # Interface gráfica principal e seletor Semanal/Mensal
+        └── weekly_panel.py     # Painel e formulário do relatório semanal
 ```
 
 ---
@@ -112,7 +138,24 @@ A geração de PDFs utiliza o **WeasyPrint**, que depende das bibliotecas C **GT
 
 ---
 
-### Opção 2: Execução via Docker e Docker Compose
+### Opção 2: Executável Windows (.exe)
+
+Gera uma versão standalone **com as DLLs do GTK3/WeasyPrint embutidas** — quem receber o executável **não precisa instalar Python nem o GTK3 Runtime**.
+
+1. Na máquina de build, instale uma vez o [GTK3 Runtime](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases) e as dependências (`pip install -r requirements.txt pyinstaller` no `venv`).
+2. Gere o executável:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
+   ```
+3. O resultado fica em `dist\Gerador_Relatorios_Revinn\`, contendo:
+   - `Gerador_Relatorios_Revinn.exe`
+   - `_internal\` (bibliotecas, WeasyPrint, GTK3, fontes, logo)
+   - `LEIA-ME.txt` (instruções de uso, gerado automaticamente pelo script)
+4. Para distribuir, compacte e envie a **pasta completa**. O `.exe` deve ser executado de **dentro** dela, nunca copiado sozinho.
+
+---
+
+### Opção 3: Execução via Docker e Docker Compose
 
 O Docker é ideal para rodar o projeto em um ambiente totalmente isolado e pré-configurado com as bibliotecas do GTK+3 e Tkinter.
 
